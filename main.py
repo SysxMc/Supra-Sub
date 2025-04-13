@@ -16,7 +16,7 @@ if not USER_AGENT:
     USER_AGENT = "linux:mysecretpodcastbot:v1.0 (by /u/YourRedditUsername)"  # CHANGE THIS
 
 # Configuration settings
-TARGET_SUBREDDIT = "confessions"  # Or "TrueOffMyChest", "secrets", etc.
+TARGET_SUBREDDIT = "SluttyConfessions"  # Or "TrueOffMyChest", "secrets", etc.
 POST_LIMIT = 10  # Number of posts to fetch each run
 MIN_TEXT_LENGTH = 50  # Minimum characters in post body to process
 MAX_TEXT_LENGTH = 5000  # Maximum characters to avoid very long TTS generations
