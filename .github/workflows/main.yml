@@ -1,0 +1,110 @@
+name: Generate Narrated Content and Deploy
+
+on:
+  workflow_dispatch:  # Allows manual triggering from GitHub UI
+  schedule:
+    # Runs daily at 00:00 UTC - adjust as needed
+    - cron: '0 0 * * *'
+  push:
+    branches:
+      - main  # Optional: Run on push to main (useful for testing workflow changes)
+    paths-ignore:
+      - 'README.md'
+      - '.gitignore'
+      - 'LICENSE'
+
+# Permissions needed for checkout, committing changes, and deploying to Pages
+permissions:
+  contents: write  # Allow committing to the repo
+  pages: write     # Allow deploying to GitHub Pages
+  id-token: write  # Allow OIDC token generation for deployment
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}  # Output the deployed URL
+    
+    concurrency:
+      group: "pages"
+      cancel-in-progress: false
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1  # Only need the most recent commit for efficiency
+      
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'  # Or your preferred Python version
+          cache: 'pip'  # Cache dependencies for faster runs
+      
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+      
+      - name: Run script to fetch posts and generate TTS
+        env:
+          # Pass secrets securely to the script
+          REDDIT_CLIENT_ID: ${{ secrets.REDDIT_CLIENT_ID }}
+          REDDIT_CLIENT_SECRET: ${{ secrets.REDDIT_CLIENT_SECRET }}
+          REDDIT_USER_AGENT: ${{ secrets.REDDIT_USER_AGENT || format('linux:gh-actions-narrator:{0}:v1 (by /u/YourUsername)', github.repository) }}
+        run: python main.py
+      
+      - name: Configure Git
+        run: |
+          git config --global user.name 'github-actions[bot]'
+          git config --global user.email 'github-actions[bot]@users.noreply.github.com'
+      
+      - name: Commit generated files
+        run: |
+          # Stage the generated files
+          git add index.html audio/ processed_posts.json
+          
+          # Check if there are changes to commit
+          if git diff --staged --quiet; then
+            echo "No changes to commit."
+          else
+            # Commit with timestamp
+            git commit -m "Automated content update: $(date -u +'%Y-%m-%d %H:%M:%S UTC')"
+            
+            # Push to repository with retry logic
+            MAX_ATTEMPTS=3
+            ATTEMPT=1
+            
+            while [ $ATTEMPT -le $MAX_ATTEMPTS ]; do
+              echo "Push attempt $ATTEMPT of $MAX_ATTEMPTS"
+              
+              if git push; then
+                echo "Push successful!"
+                break
+              else
+                if [ $ATTEMPT -eq $MAX_ATTEMPTS ]; then
+                  echo "Failed to push after $MAX_ATTEMPTS attempts. Exiting."
+                  exit 1
+                fi
+                
+                echo "Push failed. Pulling latest changes and trying again..."
+                git pull --rebase
+                ATTEMPT=$((ATTEMPT+1))
+              fi
+            done
+          fi
+      
+      # --- GitHub Pages Deployment ---
+      - name: Setup Pages
+        uses: actions/configure-pages@v4
+      
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          # Upload entire repository contents
+          path: '.'
+      
+      - name: Deploy to GitHub Pages
+        id: deployment  # Used to reference outputs
+        uses: actions/deploy-pages@v4
